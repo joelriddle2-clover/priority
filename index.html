@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Priority Scorecard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/htm@3.1.1/dist/htm.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .score-btn { transition: all 0.15s ease; }
+    .score-btn:hover { transform: scale(1.08); }
+    .fade-in { animation: fadeIn 0.2s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .bar-fill { transition: width 0.4s ease; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="root"></div>
+  <script>
+    var html = htm.bind(React.createElement);
+    var useState = React.useState;
+    var useReducer = React.useReducer;
+    var useEffect = React.useEffect;
+    var useMemo = React.useMemo;
+    var useCallback = React.useCallback;
+    var createContext = React.createContext;
+    var useContext = React.useContext;
+    var useRef = React.useRef;
+
+    // ─── Utils ───────────────────────────────────────────────────────────
+    function genId() { return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 11); }
+
+    function letterGrade(appeal) {
+      if (appeal >= 0.9) return 'A';
+      if (appeal >= 0.8) return 'B';
+      if (appeal >= 0.7) return 'C';
+      if (appeal >= 0.6) return 'D';
+      return 'F';
+    }
+
+    var GRADE_COLORS = {
+      A: { text: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', hex: '#059669' },
+      B: { text: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', hex: '#2563eb' },
+      C: { text: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', hex: '#d97706' },
+      D: { text: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200', hex: '#ea580c' },
+      F: { text: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', hex: '#dc2626' },
+    };
+
+    var CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+
+    var SCORE_STYLES = {
+      0: { active: 'bg-gray-500 text-white border-transparent shadow-md', inactive: 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50' },
+      1: { active: 'bg-sky-500 text-white border-transparent shadow-md', inactive: 'bg-white text-sky-600 border-sky-300 hover:bg-sky-50' },
+      3: { active: 'bg-blue-600 text-white border-transparent shadow-md', inactive: 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50' },
+      9: { active: 'bg-indigo-600 text-white border-transparent shadow-md', inactive: 'bg-white text-indigo-600 border-indigo-300 hover:bg-indigo-50' },
+    };
+
+    // ─── Default Template ────────────────────────────────────────────────
+    var defaultTemplate = {
+      sections: [
+        { id: 'brand', name: 'Brand', questions: [
+            { id: 'b1', text: 'Does it improve our ability to deliver on NDF?' },
+            { id: 'b2', text: 'Is this a TI priority?' },
+            { id: 'b3', text: 'Does this influence other TIs?' },
+            { id: 'b4', text: 'Does it improve our ability to support security compliance requirements?' },
+            { id: 'b5', text: 'Does this maintain our brand of an available, consistent and trusted data foundation?' },
+            { id: 'b6', text: 'Is it tied to a portfolio priority?' },
+            { id: 'b7', text: 'Will this be a delighter for the stakeholder?' },
+        ]},
+        { id: 'ops', name: 'Operational Costs', questions: [
+            { id: 'o1', text: 'Will an existing capability support this item?' },
+            { id: 'o2', text: 'Will this work on our new tech stack?' },
+            { id: 'o3', text: 'Are multiple stakeholders requesting this item?' },
+            { id: 'o4', text: 'Will this improve or create a communication pathway?' },
+            { id: 'o5', text: 'Will this reduce redundant work across products?' },
+            { id: 'o6', text: 'Will this decrease technical debt?' },
+            { id: 'o7', text: 'Will this improve NDF performance?' },
+            { id: 'o8', text: 'Will this enable more than one geo?' },
+            { id: 'o9', text: 'Will this automate an existing process?' },
+            { id: 'o10', text: 'Can we implement automated testing for this item for future regression testing?' },
+            { id: 'o11', text: 'Do we have a stakeholder available to attend demos and answer questions during development?' },
+            { id: 'o12', text: 'Does this impact a single product in the Data Foundation?' },
+            { id: 'o13', text: 'Do the teams have the necessary skill set or knowledge to complete this item?' },
+        ]},
+        { id: 'strategy', name: 'Strategy | Client Satisfaction', questions: [
+            { id: 's1', text: 'Does this impact strategy?' },
+            { id: 's2', text: 'Will this help us serve other functions?' },
+            { id: 's3', text: 'Will this improve business/tech partner satisfaction?' },
+            { id: 's4', text: 'Will this help business adoption?' },
+            { id: 's5', text: 'Does this have a positive impact on strategy?' },
+            { id: 's6', text: 'Does this impact another strategy?' },
+        ]},
+        { id: 'finance', name: 'Financial Impact', questions: [
+            { id: 'f1', text: 'Will this have a positive impact on budget?' },
+            { id: 'f2', text: 'Will this have a positive impact on adoption?' },
+            { id: 'f3', text: 'Do we have to do this to enable the business?' },
+            { id: 'f4', text: 'Does this keep us in alignment with current stakeholders?' },
+        ]},
+      ]
+    };
+
+    function initScores(template) {
+      var scores = {};
+      template.sections.forEach(function(sec) {
+        scores[sec.id] = sec.questions.map(function(q) { return { questionId: q.id, score: null }; });
+      });
+      return scores;
+    }
+
+    // ─── Reducer ─────────────────────────────────────────────────────────
+    var STORAGE_KEY = 'priority-scorecard-state';
+
+    function loadState() {
+      // Check for shared URL data first
+      var shared = loadFromShareURL();
+      if (shared) {
+        // Clear the hash so it doesn't reload on refresh
+        if (history.replaceState) history.replaceState(null, '', window.location.pathname);
+        return shared;
+      }
+      try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) { var p = JSON.parse(raw); if (p && p.template && p.workItems) return p; }
+      } catch(e) {}
+      return { template: defaultTemplate, workItems: [], activeWorkItemId: null };
+    }
+
+    function reducer(state, action) {
+      switch (action.type) {
+        case 'ADD_WORK_ITEM': {
+          var id = genId();
+          var item = { id: id, name: action.payload.name, description: '', scores: initScores(state.template), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+          return Object.assign({}, state, { workItems: state.workItems.concat([item]), activeWorkItemId: id });
+        }
+        case 'UPDATE_WORK_ITEM':
+          return Object.assign({}, state, { workItems: state.workItems.map(function(w) { return w.id === action.payload.id ? Object.assign({}, w, action.payload, { updatedAt: new Date().toISOString() }) : w; }) });
+        case 'DELETE_WORK_ITEM': {
+          var filtered = state.workItems.filter(function(w) { return w.id !== action.payload.id; });
+          var aid = state.activeWorkItemId === action.payload.id ? (filtered.length > 0 ? filtered[0].id : null) : state.activeWorkItemId;
+          return Object.assign({}, state, { workItems: filtered, activeWorkItemId: aid });
+        }
+        case 'DUPLICATE_WORK_ITEM': {
+          var src = state.workItems.find(function(w) { return w.id === action.payload.id; });
+          if (!src) return state;
+          var nid = genId();
+          var dup = Object.assign({}, src, { id: nid, name: src.name + ' (copy)', scores: JSON.parse(JSON.stringify(src.scores)), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+          return Object.assign({}, state, { workItems: state.workItems.concat([dup]), activeWorkItemId: nid });
+        }
+        case 'SET_ACTIVE':
+          return Object.assign({}, state, { activeWorkItemId: action.payload.id });
+        case 'SET_SCORE': {
+          var p = action.payload;
+          return Object.assign({}, state, {
+            workItems: state.workItems.map(function(w) {
+              if (w.id !== p.workItemId) return w;
+              var ns = Object.assign({}, w.scores);
+              ns[p.sectionId] = (ns[p.sectionId] || []).map(function(qs) { return qs.questionId === p.questionId ? { questionId: qs.questionId, score: p.score } : qs; });
+              return Object.assign({}, w, { scores: ns, updatedAt: new Date().toISOString() });
+            })
+          });
+        }
+        case 'CLEAR_SCORES':
+          return Object.assign({}, state, { workItems: state.workItems.map(function(w) { return w.id === action.payload.id ? Object.assign({}, w, { scores: initScores(state.template), updatedAt: new Date().toISOString() }) : w; }) });
+        case 'ADD_SECTION': {
+          var sec = { id: genId(), name: action.payload.name, questions: [] };
+          var nt = Object.assign({}, state.template, { sections: state.template.sections.concat([sec]) });
+          var ni = state.workItems.map(function(w) { var s = Object.assign({}, w.scores); s[sec.id] = []; return Object.assign({}, w, { scores: s }); });
+          return Object.assign({}, state, { template: nt, workItems: ni });
+        }
+        case 'UPDATE_SECTION':
+          return Object.assign({}, state, { template: Object.assign({}, state.template, { sections: state.template.sections.map(function(s) { return s.id === action.payload.id ? Object.assign({}, s, { name: action.payload.name }) : s; }) }) });
+        case 'DELETE_SECTION': {
+          var ns2 = state.template.sections.filter(function(s) { return s.id !== action.payload.id; });
+          var ni2 = state.workItems.map(function(w) { var s = Object.assign({}, w.scores); delete s[action.payload.id]; return Object.assign({}, w, { scores: s }); });
+          return Object.assign({}, state, { template: Object.assign({}, state.template, { sections: ns2 }), workItems: ni2 });
+        }
+        case 'ADD_QUESTION': {
+          var q = { id: genId(), text: action.payload.text };
+          var sid = action.payload.sectionId;
+          var nt2 = Object.assign({}, state.template, { sections: state.template.sections.map(function(s) { return s.id === sid ? Object.assign({}, s, { questions: s.questions.concat([q]) }) : s; }) });
+          var ni3 = state.workItems.map(function(w) { var sc = Object.assign({}, w.scores); sc[sid] = (sc[sid] || []).concat([{ questionId: q.id, score: null }]); return Object.assign({}, w, { scores: sc }); });
+          return Object.assign({}, state, { template: nt2, workItems: ni3 });
+        }
+        case 'UPDATE_QUESTION':
+          return Object.assign({}, state, { template: Object.assign({}, state.template, { sections: state.template.sections.map(function(s) { return s.id === action.payload.sectionId ? Object.assign({}, s, { questions: s.questions.map(function(q) { return q.id === action.payload.questionId ? Object.assign({}, q, { text: action.payload.text }) : q; }) }) : s; }) }) });
+        case 'DELETE_QUESTION': {
+          var sid2 = action.payload.sectionId, qid = action.payload.questionId;
+          var nt3 = Object.assign({}, state.template, { sections: state.template.sections.map(function(s) { return s.id === sid2 ? Object.assign({}, s, { questions: s.questions.filter(function(q) { return q.id !== qid; }) }) : s; }) });
+          var ni4 = state.workItems.map(function(w) { var sc = Object.assign({}, w.scores); sc[sid2] = (sc[sid2] || []).filter(function(qs) { return qs.questionId !== qid; }); return Object.assign({}, w, { scores: sc }); });
+          return Object.assign({}, state, { template: nt3, workItems: ni4 });
+        }
+        case 'MOVE_SECTION': {
+          var secs = state.template.sections.slice();
+          var moved = secs.splice(action.payload.fromIndex, 1)[0];
+          secs.splice(action.payload.toIndex, 0, moved);
+          return Object.assign({}, state, { template: Object.assign({}, state.template, { sections: secs }) });
+        }
+        case 'RESET_TEMPLATE': {
+          var ni5 = state.workItems.map(function(w) { return Object.assign({}, w, { scores: initScores(defaultTemplate), updatedAt: new Date().toISOString() }); });
+          return Object.assign({}, state, { template: defaultTemplate, workItems: ni5 });
+        }
+        case 'IMPORT_STATE': return action.payload;
+        default: return state;
+      }
+    }
+
+    // ─── Context ─────────────────────────────────────────────────────────
+    var AppCtx = createContext(null);
+    function useApp() { return useContext(AppCtx); }
+
+    function computeResults(state) {
+      return state.workItems.map(function(item) {
+        var sectionResults = state.template.sections.map(function(section) {
+          var scores = item.scores[section.id] || [];
+          var answered = scores.filter(function(s) { return s.score !== null; });
+          var rawScore = answered.reduce(function(sum, s) { return sum + s.score; }, 0);
+          var maxPossible = answered.length * 9;
+          return { sectionId: section.id, sectionName: section.name, rawScore: rawScore, maxPossible: maxPossible, answeredCount: answered.length, totalQuestions: section.questions.length, appeal: maxPossible > 0 ? rawScore / maxPossible : 0 };
+        });
+        var appeals = sectionResults.filter(function(r) { return r.answeredCount > 0; }).map(function(r) { return r.appeal; });
+        var overall = appeals.length > 0 ? appeals.reduce(function(a, b) { return a + b; }, 0) / appeals.length : 0;
+        var totalQ = sectionResults.reduce(function(s, r) { return s + r.totalQuestions; }, 0);
+        var totalA = sectionResults.reduce(function(s, r) { return s + r.answeredCount; }, 0);
+        return { workItemId: item.id, workItemName: item.name, sectionResults: sectionResults, overallAppeal: overall, grade: letterGrade(overall), completionPct: totalQ > 0 ? totalA / totalQ : 0 };
+      });
+    }
+
+    // ─── Shared Components ───────────────────────────────────────────────
+    function GradeBadge(props) {
+      var c = GRADE_COLORS[props.grade];
+      var sz = props.size === 'lg' ? 'text-2xl px-4 py-1.5' : props.size === 'sm' ? 'text-xs px-2 py-0.5' : 'text-sm px-3 py-1';
+      return html`<span className=${'font-bold rounded-lg border ' + c.text + ' ' + c.bg + ' ' + c.border + ' ' + sz}>${props.grade}</span>`;
+    }
+
+    function ProgressBar(props) {
+      var val = Math.min(100, Math.max(0, props.value || 0));
+      var color = props.color || 'bg-blue-500';
+      return html`<div className=${'w-full bg-gray-200 rounded-full h-2 ' + (props.className || '')}>
+        <div className=${'h-2 rounded-full bar-fill ' + color} style=${{ width: val + '%' }} />
+      </div>`;
+    }
+
+    function ConfirmDialog(props) {
+      if (!props.open) return null;
+      return html`<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick=${props.onCancel}>
+        <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm mx-4 fade-in" onClick=${function(e) { e.stopPropagation(); }}>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">${props.title}</h3>
+          <p className="text-gray-600 mb-6">${props.message}</p>
+          <div className="flex justify-end gap-3">
+            <button onClick=${props.onCancel} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+            <button onClick=${props.onConfirm} className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">Confirm</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function EmptyState(props) {
+      return html`<div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="text-5xl mb-4">${props.icon}</div>
+        <h3 className="text-lg font-medium text-gray-500 mb-2">${props.title}</h3>
+        <p className="text-gray-400 mb-6 max-w-md">${props.message}</p>
+      </div>`;
+    }
+
+    function Icon(props) {
+      return html`<svg className=${props.className || 'w-4 h-4'} fill=${props.fill || 'none'} viewBox="0 0 24 24" stroke=${props.stroke || 'currentColor'}>
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth=${props.sw || 2} d=${props.d} />
+      </svg>`;
+    }
+
+    // ─── Export Utilities ──────────────────────────────────────────────────
+    function exportCSV(state, results) {
+      var rows = [];
+      // Header row
+      var header = ['Work Item'];
+      state.template.sections.forEach(function(sec) {
+        header.push(sec.name + ' (%)');
+        header.push(sec.name + ' (Grade)');
+      });
+      header.push('Overall (%)', 'Overall Grade', 'Completion (%)');
+      rows.push(header);
+
+      // Detail header with questions
+      var qHeader = [''];
+      state.template.sections.forEach(function(sec) {
+        qHeader.push(''); qHeader.push('');
+      });
+      qHeader.push('', '', '');
+      rows.push([]);
+      rows.push(['--- Question Detail ---']);
+
+      var qColHeader = ['Question'];
+      results.forEach(function(r) { qColHeader.push(r.workItemName); });
+      rows.push(qColHeader);
+
+      state.template.sections.forEach(function(sec) {
+        rows.push([sec.name + ' (' + sec.questions.length + ' questions)']);
+        sec.questions.forEach(function(q) {
+          var row = [q.text];
+          state.workItems.forEach(function(item) {
+            var sScores = item.scores[sec.id] || [];
+            var qs = sScores.find(function(x) { return x.questionId === q.id; });
+            row.push(qs && qs.score !== null ? qs.score : '');
+          });
+          rows.push(row);
+        });
+      });
+
+      // Summary rows at top
+      var summaryRows = [];
+      results.forEach(function(r) {
+        var row = [r.workItemName];
+        state.template.sections.forEach(function(sec) {
+          var sr = r.sectionResults.find(function(x) { return x.sectionId === sec.id; });
+          row.push(sr ? Math.round(sr.appeal * 100) : 0);
+          row.push(sr ? letterGrade(sr.appeal) : 'F');
+        });
+        row.push(Math.round(r.overallAppeal * 100), r.grade, Math.round(r.completionPct * 100));
+        summaryRows.push(row);
+      });
+
+      // Insert summary rows after header
+      var finalRows = [rows[0]].concat(summaryRows).concat(rows.slice(1));
+
+      var csv = finalRows.map(function(row) {
+        return row.map(function(cell) {
+          var s = String(cell === undefined || cell === null ? '' : cell);
+          if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+            return '"' + s.replace(/"/g, '""') + '"';
+          }
+          return s;
+        }).join(',');
+      }).join('\n');
+
+      var blob = new Blob([csv], { type: 'text/csv' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = 'priority-scorecard-' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click(); URL.revokeObjectURL(url);
+    }
+
+    function generateShareURL(state) {
+      var minimal = {
+        t: state.template.sections.map(function(sec) {
+          return { i: sec.id, n: sec.name, q: sec.questions.map(function(q) { return { i: q.id, t: q.text }; }) };
+        }),
+        w: state.workItems.map(function(item) {
+          var scores = {};
+          Object.keys(item.scores).forEach(function(secId) {
+            var answered = item.scores[secId].filter(function(s) { return s.score !== null; });
+            if (answered.length > 0) {
+              scores[secId] = answered.map(function(s) { return s.questionId + ':' + s.score; }).join(',');
+            }
+          });
+          return { i: item.id, n: item.name, s: scores };
+        })
+      };
+      var json = JSON.stringify(minimal);
+      var encoded = btoa(unescape(encodeURIComponent(json)));
+      return window.location.origin + window.location.pathname + '#data=' + encoded;
+    }
+
+    function loadFromShareURL() {
+      var hash = window.location.hash;
+      if (!hash || hash.indexOf('#data=') !== 0) return null;
+      try {
+        var encoded = hash.slice(6);
+        var json = decodeURIComponent(escape(atob(encoded)));
+        var minimal = JSON.parse(json);
+        var template = {
+          sections: minimal.t.map(function(sec) {
+            return { id: sec.i, name: sec.n, questions: sec.q.map(function(q) { return { id: q.i, text: q.t }; }) };
+          })
+        };
+        var workItems = minimal.w.map(function(item) {
+          var scores = {};
+          template.sections.forEach(function(sec) {
+            scores[sec.id] = sec.questions.map(function(q) {
+              var val = null;
+              if (item.s[sec.id]) {
+                var pairs = item.s[sec.id].split(',');
+                for (var p = 0; p < pairs.length; p++) {
+                  var parts = pairs[p].split(':');
+                  if (parts[0] === q.id) { val = parseInt(parts[1], 10); break; }
+                }
+              }
+              return { questionId: q.id, score: val };
+            });
+          });
+          return { id: item.i, name: item.n, description: '', scores: scores, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        });
+        return { template: template, workItems: workItems, activeWorkItemId: workItems.length > 0 ? workItems[0].id : null };
+      } catch(e) { return null; }
+    }
+
+    function printReport(state, results) {
+      var gradeHex = { A: '#059669', B: '#2563eb', C: '#d97706', D: '#ea580c', F: '#dc2626' };
+      var sorted = results.slice().sort(function(a, b) { return b.overallAppeal - a.overallAppeal; });
+
+      var h = '<!DOCTYPE html><html><head><title>Priority Scorecard Report</title><style>';
+      h += 'body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:40px;color:#1f2937}';
+      h += 'h1{font-size:24px;margin-bottom:4px}h2{font-size:18px;color:#4b5563;margin-top:32px}';
+      h += '.subtitle{color:#6b7280;font-size:14px;margin-bottom:24px}';
+      h += 'table{width:100%;border-collapse:collapse;margin:12px 0 24px}';
+      h += 'th{background:#f9fafb;text-align:left;padding:10px 12px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid #e5e7eb}';
+      h += 'td{padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:14px}';
+      h += '.grade{display:inline-block;padding:2px 10px;border-radius:6px;font-weight:700;font-size:13px}';
+      h += '.bar-bg{background:#e5e7eb;border-radius:4px;height:8px;width:80px;display:inline-block;vertical-align:middle;margin-right:8px}';
+      h += '.bar-fg{height:8px;border-radius:4px}';
+      h += '.section-card{border:1px solid #e5e7eb;border-radius:12px;margin:12px 0;overflow:hidden}';
+      h += '.section-header{background:#f9fafb;padding:12px 16px;font-weight:600;font-size:14px;border-bottom:1px solid #e5e7eb}';
+      h += '.q-row{display:flex;justify-content:space-between;padding:8px 16px;border-bottom:1px solid #f9fafb;font-size:13px}';
+      h += '.q-row:last-child{border:0}.q-scores{display:flex;gap:16px}';
+      h += '.winner{background:#ecfdf5;color:#059669;padding:1px 6px;border-radius:4px;font-weight:600}';
+      h += '@media print{body{margin:20px}@page{margin:0.75in}}';
+      h += '</style></head><body>';
+
+      h += '<h1>Priority Scorecard Report</h1>';
+      h += '<p class="subtitle">Generated ' + new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) + ' &bull; ' + results.length + ' work item' + (results.length !== 1 ? 's' : '') + '</p>';
+
+      // Rankings table
+      h += '<h2>Rankings</h2><table><thead><tr><th>#</th><th>Work Item</th>';
+      state.template.sections.forEach(function(sec) { h += '<th>' + sec.name + '</th>'; });
+      h += '<th>Overall</th><th>Grade</th></tr></thead><tbody>';
+      sorted.forEach(function(r, i) {
+        h += '<tr><td>' + (i + 1) + '</td><td style="font-weight:600">' + r.workItemName + '</td>';
+        state.template.sections.forEach(function(sec) {
+          var sr = r.sectionResults.find(function(x) { return x.sectionId === sec.id; });
+          var pct = sr ? Math.round(sr.appeal * 100) : 0;
+          var color = pct >= 70 ? '#059669' : pct >= 50 ? '#d97706' : '#dc2626';
+          h += '<td><span class="bar-bg"><span class="bar-fg" style="width:' + pct + '%;background:' + color + '"></span></span>' + pct + '%</td>';
+        });
+        var gc = gradeHex[r.grade];
+        h += '<td style="font-weight:700">' + Math.round(r.overallAppeal * 100) + '%</td>';
+        h += '<td><span class="grade" style="color:' + gc + ';background:' + gc + '18">' + r.grade + '</span></td></tr>';
+      });
+      h += '</tbody></table>';
+
+      // Detailed scores per item
+      sorted.forEach(function(r) {
+        var item = state.workItems.find(function(w) { return w.id === r.workItemId; });
+        if (!item) return;
+        var gc = gradeHex[r.grade];
+        h += '<h2>' + r.workItemName + ' <span class="grade" style="color:' + gc + ';background:' + gc + '18">' + r.grade + ' (' + Math.round(r.overallAppeal * 100) + '%)</span></h2>';
+        state.template.sections.forEach(function(sec) {
+          var sr = r.sectionResults.find(function(x) { return x.sectionId === sec.id; });
+          var pct = sr ? Math.round(sr.appeal * 100) : 0;
+          h += '<div class="section-card"><div class="section-header">' + sec.name + ' &mdash; ' + pct + '%</div>';
+          sec.questions.forEach(function(q) {
+            var sScores = item.scores[sec.id] || [];
+            var qs = sScores.find(function(x) { return x.questionId === q.id; });
+            var score = qs && qs.score !== null ? qs.score : '--';
+            h += '<div class="q-row"><span>' + q.text + '</span><span style="font-weight:600;min-width:24px;text-align:center">' + score + '</span></div>';
+          });
+          h += '</div>';
+        });
+      });
+
+      h += '</body></html>';
+      var w = window.open('', '_blank');
+      w.document.write(h);
+      w.document.close();
+      w.focus();
+      setTimeout(function() { w.print(); }, 500);
+    }
+
+    // ─── SVG Charts (no Recharts) ────────────────────────────────────────
+    function HBarChart(props) {
+      var items = props.items || [];
+      if (items.length === 0) return null;
+      var rowH = 40;
+      var gap = 8;
+      var labelW = 150;
+      var totalH = items.length * (rowH + gap);
+      return html`<div style=${{ overflowX: 'auto' }}>
+        <svg width="100%" height=${totalH} viewBox=${'0 0 600 ' + totalH} preserveAspectRatio="xMinYMin meet">
+          ${items.map(function(item, i) {
+            var y = i * (rowH + gap);
+            var barW = Math.max(2, (item.value / 100) * 420);
+            var c = GRADE_COLORS[item.grade] || GRADE_COLORS.F;
+            return html`<g key=${i}>
+              <text x=${labelW - 8} y=${y + rowH / 2 + 5} textAnchor="end" fontSize="13" fill="#374151" fontWeight="500">${item.name.length > 20 ? item.name.slice(0, 20) + '...' : item.name}</text>
+              <rect x=${labelW} y=${y + 6} width=${barW} height=${rowH - 12} rx="6" fill=${c.hex} opacity="0.85" />
+              <text x=${labelW + barW + 8} y=${y + rowH / 2 + 5} fontSize="13" fill="#6b7280" fontWeight="600">${item.value}%</text>
+              <text x=${labelW + barW + 50} y=${y + rowH / 2 + 5} fontSize="12" fill=${c.hex} fontWeight="700">${item.grade}</text>
+            </g>`;
+          })}
+        </svg>
+      </div>`;
+    }
+
+    function RadarChart(props) {
+      var data = props.data || [];
+      var items = props.items || [];
+      if (data.length === 0 || items.length === 0) return null;
+
+      var cx = 200, cy = 190, r = 140;
+      var n = data.length;
+      var angleStep = (2 * Math.PI) / n;
+
+      function polarToXY(angle, radius) {
+        return { x: cx + radius * Math.sin(angle), y: cy - radius * Math.cos(angle) };
+      }
+
+      // Grid rings
+      var rings = [20, 40, 60, 80, 100];
+      var gridLines = rings.map(function(pct) {
+        var pts = [];
+        for (var i = 0; i < n; i++) {
+          var p = polarToXY(i * angleStep, (pct / 100) * r);
+          pts.push(p.x + ',' + p.y);
+        }
+        return html`<polygon key=${pct} points=${pts.join(' ')} fill="none" stroke="#e5e7eb" strokeWidth="1" />`;
+      });
+
+      // Axis lines
+      var axisLines = data.map(function(d, i) {
+        var p = polarToXY(i * angleStep, r);
+        return html`<line key=${i} x1=${cx} y1=${cy} x2=${p.x} y2=${p.y} stroke="#e5e7eb" strokeWidth="1" />`;
+      });
+
+      // Labels
+      var labels = data.map(function(d, i) {
+        var p = polarToXY(i * angleStep, r + 20);
+        var anchor = p.x < cx - 10 ? 'end' : p.x > cx + 10 ? 'start' : 'middle';
+        var label = d.label.length > 16 ? d.label.slice(0, 16) + '...' : d.label;
+        return html`<text key=${i} x=${p.x} y=${p.y} textAnchor=${anchor} fontSize="11" fill="#6b7280">${label}</text>`;
+      });
+
+      // Data polygons
+      var polys = items.map(function(item, idx) {
+        var pts = data.map(function(d, i) {
+          var val = d.values[item.id] || 0;
+          var p = polarToXY(i * angleStep, (val / 100) * r);
+          return p.x + ',' + p.y;
+        });
+        var color = CHART_COLORS[idx % CHART_COLORS.length];
+        return html`<polygon key=${item.id} points=${pts.join(' ')} fill=${color} fillOpacity="0.12" stroke=${color} strokeWidth="2" />`;
+      });
+
+      // Legend
+      var legendY = cy + r + 40;
+      var legend = items.map(function(item, idx) {
+        var color = CHART_COLORS[idx % CHART_COLORS.length];
+        var lx = 20 + idx * 160;
+        return html`<g key=${item.id}>
+          <rect x=${lx} y=${legendY} width="12" height="12" rx="2" fill=${color} />
+          <text x=${lx + 18} y=${legendY + 10} fontSize="12" fill="#374151">${item.name.length > 18 ? item.name.slice(0, 18) + '...' : item.name}</text>
+        </g>`;
+      });
+
+      return html`<svg width="100%" height=${legendY + 30} viewBox=${'0 0 400 ' + (legendY + 30)} preserveAspectRatio="xMidYMid meet">
+        ${gridLines}
+        ${axisLines}
+        ${polys}
+        ${labels}
+        ${legend}
+      </svg>`;
+    }
+
+    // ─── Score Button ────────────────────────────────────────────────────
+    function ScoreButton(props) {
+      var s = SCORE_STYLES[props.value];
+      var cls = 'score-btn w-10 h-10 rounded-lg font-semibold text-sm border-2 ' + (props.selected ? s.active : s.inactive);
+      return html`<button onClick=${props.onClick} className=${cls}>${props.value}</button>`;
+    }
+
+    // ─── Scoring View ────────────────────────────────────────────────────
+    function QuestionRow(props) {
+      var ctx = useApp();
+      var q = props.question;
+      return html`<div className="flex items-center justify-between py-3 px-4 hover:bg-gray-50 rounded-lg">
+        <p className="text-gray-700 flex-1 pr-4 text-sm leading-relaxed">${q.text}</p>
+        <div className="flex gap-1.5 shrink-0">
+          ${[0, 1, 3, 9].map(function(v) {
+            return html`<${ScoreButton} key=${v} value=${v} selected=${props.currentScore === v}
+              onClick=${function() { ctx.dispatch({ type: 'SET_SCORE', payload: { workItemId: props.workItemId, sectionId: props.sectionId, questionId: q.id, score: props.currentScore === v ? null : v } }); }} />`;
+          })}
+        </div>
+      </div>`;
+    }
+
+    function SectionAccordion(props) {
+      var s = useState(true); var open = s[0]; var setOpen = s[1];
+      var section = props.section;
+      var workItem = props.workItem;
+      var sr = props.sectionResult;
+      var scores = workItem.scores[section.id] || [];
+      var appealPct = Math.round(sr.appeal * 100);
+      var barColor = appealPct >= 70 ? 'bg-emerald-500' : appealPct >= 50 ? 'bg-amber-500' : 'bg-red-400';
+      var pctColor = appealPct >= 70 ? 'text-emerald-600' : appealPct >= 50 ? 'text-amber-600' : 'text-red-500';
+
+      return html`<div className="border border-gray-200 rounded-xl overflow-hidden bg-white mb-3">
+        <button onClick=${function() { setOpen(!open); }} className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50">
+          <div className="flex items-center gap-3">
+            <${Icon} className=${'w-4 h-4 text-gray-400 transition-transform ' + (open ? 'rotate-90' : '')} d="M9 5l7 7-7 7" />
+            <h3 className="font-semibold text-gray-800">${section.name}</h3>
+            <span className="text-xs text-gray-400">${sr.answeredCount}/${sr.totalQuestions} answered</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-24"><${ProgressBar} value=${appealPct} color=${barColor} /></div>
+            <span className=${'text-sm font-semibold min-w-[3rem] text-right ' + pctColor}>${appealPct}%</span>
+          </div>
+        </button>
+        ${open && html`<div className="border-t border-gray-100 px-2 py-1">
+          ${section.questions.map(function(q) {
+            var qs = scores.find(function(x) { return x.questionId === q.id; });
+            return html`<${QuestionRow} key=${q.id} question=${q} sectionId=${section.id} workItemId=${workItem.id} currentScore=${qs ? qs.score : null} />`;
+          })}
+        </div>`}
+      </div>`;
+    }
+
+    function WorkItemCard(props) {
+      var ctx = useApp();
+      var item = props.item;
+      var result = props.result;
+      var ms = useState(false); var showMenu = ms[0]; var setShowMenu = ms[1];
+      var ds = useState(false); var confirmDel = ds[0]; var setConfirmDel = ds[1];
+      var menuRef = useRef(null);
+
+      useEffect(function() {
+        var handler = function(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false); };
+        document.addEventListener('mousedown', handler);
+        return function() { document.removeEventListener('mousedown', handler); };
+      }, []);
+
+      return html`<div>
+        <div onClick=${props.onClick} className=${'relative cursor-pointer p-3 rounded-lg border-2 transition-all ' + (props.active ? 'border-blue-500 bg-blue-50/50' : 'border-transparent hover:bg-gray-100')}>
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-800 truncate text-sm">${item.name}</p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-xs text-gray-500">${Math.round(result.overallAppeal * 100)}%</span>
+                <div className="w-12"><${ProgressBar} value=${result.completionPct * 100} color="bg-gray-400" /></div>
+              </div>
+            </div>
+            <div className="relative" ref=${menuRef}>
+              <button onClick=${function(e) { e.stopPropagation(); setShowMenu(!showMenu); }} className="p-1 rounded hover:bg-gray-200 text-gray-400">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" /></svg>
+              </button>
+              ${showMenu && html`<div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 w-36">
+                <button onClick=${function(e) { e.stopPropagation(); ctx.dispatch({ type: 'DUPLICATE_WORK_ITEM', payload: { id: item.id } }); setShowMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Duplicate</button>
+                <button onClick=${function(e) { e.stopPropagation(); ctx.dispatch({ type: 'CLEAR_SCORES', payload: { id: item.id } }); setShowMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Clear Scores</button>
+                <button onClick=${function(e) { e.stopPropagation(); setConfirmDel(true); setShowMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
+              </div>`}
+            </div>
+          </div>
+        </div>
+        <${ConfirmDialog} open=${confirmDel} title="Delete Work Item" message=${'Delete "' + item.name + '"? This cannot be undone.'}
+          onConfirm=${function() { ctx.dispatch({ type: 'DELETE_WORK_ITEM', payload: { id: item.id } }); setConfirmDel(false); }}
+          onCancel=${function() { setConfirmDel(false); }} />
+      </div>`;
+    }
+
+    function ScoringView() {
+      var ctx = useApp();
+      var state = ctx.state; var dispatch = ctx.dispatch; var results = ctx.results;
+      var ns = useState(''); var newName = ns[0]; var setNewName = ns[1];
+      var es = useState(false); var editing = es[0]; var setEditing = es[1];
+      var ens = useState(''); var editName = ens[0]; var setEditName = ens[1];
+
+      var activeItem = state.workItems.find(function(w) { return w.id === state.activeWorkItemId; });
+      var activeResult = results.find(function(r) { return r.workItemId === state.activeWorkItemId; });
+
+      function handleAdd() {
+        var name = newName.trim();
+        if (!name) return;
+        dispatch({ type: 'ADD_WORK_ITEM', payload: { name: name } });
+        setNewName('');
+      }
+
+      return html`<div className="flex gap-6 h-[calc(100vh-140px)]">
+        <div className="w-64 shrink-0 flex flex-col">
+          <div className="mb-3">
+            <div className="flex gap-2">
+              <input value=${newName} onChange=${function(e) { setNewName(e.target.value); }}
+                onKeyDown=${function(e) { if (e.key === 'Enter') handleAdd(); }}
+                placeholder="New work item..."
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <button onClick=${handleAdd} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shrink-0">+</button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto space-y-1 pr-1">
+            ${state.workItems.map(function(item) {
+              var r = results.find(function(x) { return x.workItemId === item.id; });
+              return html`<${WorkItemCard} key=${item.id} item=${item} active=${item.id === state.activeWorkItemId}
+                result=${r} onClick=${function() { dispatch({ type: 'SET_ACTIVE', payload: { id: item.id } }); }} />`;
+            })}
+            ${state.workItems.length === 0 && html`<p className="text-center text-gray-400 text-sm py-8">Add a work item to begin scoring</p>`}
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          ${activeItem && activeResult ? html`<div className="fade-in">
+            <div className="mb-6">
+              <div className="flex items-center gap-4 mb-3">
+                ${editing ? html`<input autoFocus value=${editName}
+                  onChange=${function(e) { setEditName(e.target.value); }}
+                  onBlur=${function() { if (editName.trim()) dispatch({ type: 'UPDATE_WORK_ITEM', payload: { id: activeItem.id, name: editName.trim() } }); setEditing(false); }}
+                  onKeyDown=${function(e) { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEditing(false); }}
+                  className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 outline-none bg-transparent" />`
+                : html`<h2 className="text-2xl font-bold text-gray-900 cursor-pointer hover:text-blue-600"
+                    onClick=${function() { setEditing(true); setEditName(activeItem.name); }}>${activeItem.name}</h2>`}
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-lg font-semibold text-gray-700">${Math.round(activeResult.overallAppeal * 100)}% Overall Appeal</span>
+                <div className="flex-1 max-w-xs">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Completion</span>
+                    <span>${Math.round(activeResult.completionPct * 100)}%</span>
+                  </div>
+                  <${ProgressBar} value=${activeResult.completionPct * 100} color="bg-blue-500" />
+                </div>
+              </div>
+            </div>
+            ${state.template.sections.map(function(section) {
+              var sr = activeResult.sectionResults.find(function(r) { return r.sectionId === section.id; });
+              return html`<${SectionAccordion} key=${section.id} section=${section} workItem=${activeItem} sectionResult=${sr} />`;
+            })}
+          </div>`
+          : html`<${EmptyState} icon=${'📋'} title="No item selected" message="Create a work item from the left panel or select one to start scoring." />`}
+        </div>
+      </div>`;
+    }
+
+    // ─── Rankings View ───────────────────────────────────────────────────
+    function RankingView() {
+      var ctx = useApp();
+      var state = ctx.state; var results = ctx.results;
+      var ss = useState('overall'); var sortCol = ss[0]; var setSortCol = ss[1];
+      var ds = useState('desc'); var sortDir = ds[0]; var setSortDir = ds[1];
+
+      var sorted = useMemo(function() {
+        var arr = results.slice();
+        arr.sort(function(a, b) {
+          var av, bv;
+          if (sortCol === 'overall') { av = a.overallAppeal; bv = b.overallAppeal; }
+          else if (sortCol === 'name') { av = a.workItemName.toLowerCase(); bv = b.workItemName.toLowerCase(); }
+          else if (sortCol === 'completion') { av = a.completionPct; bv = b.completionPct; }
+          else {
+            var as2 = a.sectionResults.find(function(r) { return r.sectionId === sortCol; });
+            var bs2 = b.sectionResults.find(function(r) { return r.sectionId === sortCol; });
+            av = as2 ? as2.appeal : 0; bv = bs2 ? bs2.appeal : 0;
+          }
+          if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+          return sortDir === 'asc' ? av - bv : bv - av;
+        });
+        return arr;
+      }, [results, sortCol, sortDir]);
+
+      function handleSort(col) {
+        if (sortCol === col) setSortDir(function(d) { return d === 'asc' ? 'desc' : 'asc'; });
+        else { setSortCol(col); setSortDir('desc'); }
+      }
+
+      function SortHeader(p) {
+        var arrow = sortCol === p.col ? (sortDir === 'asc' ? ' \u2191' : ' \u2193') : '';
+        return html`<th onClick=${function() { handleSort(p.col); }} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 select-none">
+          <div className="flex items-center gap-1">${p.children}${arrow}</div>
+        </th>`;
+      }
+
+      if (results.length === 0) {
+        return html`<${EmptyState} icon=${'📊'} title="No work items yet" message="Create work items in the Score tab to see rankings here." />`;
+      }
+
+      var barData = sorted.map(function(r) { return { name: r.workItemName, value: Math.round(r.overallAppeal * 100), grade: r.grade }; });
+
+      var radarData = state.template.sections.map(function(sec) {
+        var entry = { label: sec.name, values: {} };
+        sorted.slice(0, 5).forEach(function(r) {
+          var sr = r.sectionResults.find(function(s) { return s.sectionId === sec.id; });
+          entry.values[r.workItemId] = sr ? Math.round(sr.appeal * 100) : 0;
+        });
+        return entry;
+      });
+
+      var radarItems = sorted.slice(0, 5).map(function(r) { return { id: r.workItemId, name: r.workItemName }; });
+
+      return html`<div className="space-y-8 fade-in">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white border border-gray-200 rounded-xl p-6">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Overall Scores</h3>
+            <${HBarChart} items=${barData} />
+          </div>
+          <div className="bg-white border border-gray-200 rounded-xl p-6">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Section Breakdown${sorted.length > 5 ? ' (Top 5)' : ''}</h3>
+            <${RadarChart} data=${radarData} items=${radarItems} />
+          </div>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-12">#</th>
+                  <${SortHeader} col="name">Name<//>
+                  ${state.template.sections.map(function(s) {
+                    return html`<${SortHeader} key=${s.id} col=${s.id}>${s.name.length > 15 ? s.name.slice(0, 15) + '...' : s.name}<//>`;
+                  })}
+                  <${SortHeader} col="overall">Overall<//>
+                  <${SortHeader} col="completion">Done<//>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                ${sorted.map(function(r, i) {
+                  return html`<tr key=${r.workItemId} className=${'hover:bg-gray-50 ' + (i === 0 ? 'bg-blue-50/30' : '')}>
+                    <td className="px-4 py-3 text-sm text-gray-400 font-medium">${i + 1}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-800">${r.workItemName}</td>
+                    ${state.template.sections.map(function(s) {
+                      var sr = r.sectionResults.find(function(x) { return x.sectionId === s.id; });
+                      var pct = sr ? Math.round(sr.appeal * 100) : 0;
+                      return html`<td key=${s.id} className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-16"><${ProgressBar} value=${pct} color=${pct >= 70 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-red-400'} /></div>
+                          <span className="text-xs text-gray-500">${pct}%</span>
+                        </div>
+                      </td>`;
+                    })}
+                    <td className="px-4 py-3 text-sm font-bold text-gray-800">${Math.round(r.overallAppeal * 100)}%</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">${Math.round(r.completionPct * 100)}%</td>
+                  </tr>`;
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // ─── Comparison View ─────────────────────────────────────────────────
+    function ComparisonView() {
+      var ctx = useApp();
+      var state = ctx.state; var results = ctx.results;
+      var as2 = useState(state.workItems.length > 0 ? state.workItems[0].id : '');
+      var bs2 = useState(state.workItems.length > 1 ? state.workItems[1].id : '');
+      var itemAId = as2[0]; var setItemAId = as2[1];
+      var itemBId = bs2[0]; var setItemBId = bs2[1];
+
+      useEffect(function() {
+        if (!state.workItems.find(function(w) { return w.id === itemAId; }) && state.workItems.length > 0) setItemAId(state.workItems[0].id);
+        if (!state.workItems.find(function(w) { return w.id === itemBId; }) && state.workItems.length > 1) setItemBId(state.workItems[1].id);
+      }, [state.workItems]);
+
+      if (state.workItems.length < 2) {
+        return html`<${EmptyState} icon=${'⚖️'} title="Need at least two items" message="Create two or more work items in the Score tab to compare them here." />`;
+      }
+
+      var itemA = state.workItems.find(function(w) { return w.id === itemAId; });
+      var itemB = state.workItems.find(function(w) { return w.id === itemBId; });
+      var resultA = results.find(function(r) { return r.workItemId === itemAId; });
+      var resultB = results.find(function(r) { return r.workItemId === itemBId; });
+      if (!itemA || !itemB || !resultA || !resultB) return null;
+
+      function swap() { setItemAId(itemBId); setItemBId(itemAId); }
+
+      return html`<div className="space-y-6 fade-in">
+        <div className="flex items-center justify-center gap-4 flex-wrap">
+          <select value=${itemAId} onChange=${function(e) { setItemAId(e.target.value); }} className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[200px]">
+            ${state.workItems.map(function(w) { return html`<option key=${w.id} value=${w.id}>${w.name}</option>`; })}
+          </select>
+          <button onClick=${swap} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400" title="Swap">
+            <${Icon} className="w-5 h-5" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+          </button>
+          <select value=${itemBId} onChange=${function(e) { setItemBId(e.target.value); }} className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[200px]">
+            ${state.workItems.map(function(w) { return html`<option key=${w.id} value=${w.id}>${w.name}</option>`; })}
+          </select>
+        </div>
+
+        ${(resultA.completionPct < 0.5 || resultB.completionPct < 0.5) && html`<div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700 text-center">
+          ${resultA.completionPct < 0.5 ? '"' + itemA.name + '" is only ' + Math.round(resultA.completionPct * 100) + '% scored. ' : ''}
+          ${resultB.completionPct < 0.5 ? '"' + itemB.name + '" is only ' + Math.round(resultB.completionPct * 100) + '% scored. ' : ''}
+          Results may not be representative.
+        </div>`}
+
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Category</th>
+                <th className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase">${itemA.name}</th>
+                <th className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase">${itemB.name}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              <tr className="bg-gray-50/50 font-semibold">
+                <td className="px-6 py-4 text-sm text-gray-800">Overall</td>
+                <td className=${'px-6 py-4 text-center ' + (resultA.overallAppeal >= resultB.overallAppeal ? 'bg-emerald-50' : '')}>
+                  <span className="text-lg font-bold">${Math.round(resultA.overallAppeal * 100)}%</span>
+                </td>
+                <td className=${'px-6 py-4 text-center ' + (resultB.overallAppeal >= resultA.overallAppeal ? 'bg-emerald-50' : '')}>
+                  <span className="text-lg font-bold">${Math.round(resultB.overallAppeal * 100)}%</span>
+                </td>
+              </tr>
+              ${state.template.sections.map(function(sec) {
+                var srA = resultA.sectionResults.find(function(r) { return r.sectionId === sec.id; });
+                var srB = resultB.sectionResults.find(function(r) { return r.sectionId === sec.id; });
+                var pA = srA ? srA.appeal : 0; var pB = srB ? srB.appeal : 0;
+                return html`<tr key=${sec.id}>
+                  <td className="px-6 py-3 text-sm text-gray-700">${sec.name}</td>
+                  <td className=${'px-6 py-3 text-center text-sm font-medium ' + (pA > pB ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600')}>${Math.round(pA * 100)}%</td>
+                  <td className=${'px-6 py-3 text-center text-sm font-medium ' + (pB > pA ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600')}>${Math.round(pB * 100)}%</td>
+                </tr>`;
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Question-by-Question</h3>
+          ${state.template.sections.map(function(sec) {
+            var scoresA = itemA.scores[sec.id] || [];
+            var scoresB = itemB.scores[sec.id] || [];
+            return html`<div key=${sec.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
+                <h4 className="font-semibold text-gray-700 text-sm">${sec.name}</h4>
+              </div>
+              <div>
+                ${sec.questions.map(function(q) {
+                  var sa = scoresA.find(function(x) { return x.questionId === q.id; });
+                  var sb = scoresB.find(function(x) { return x.questionId === q.id; });
+                  var scoreA = sa ? sa.score : null; var scoreB = sb ? sb.score : null;
+                  var aVal = scoreA !== null ? scoreA : -1;
+                  var bVal = scoreB !== null ? scoreB : -1;
+                  return html`<div key=${q.id} className="flex items-center px-6 py-3 border-b border-gray-50 last:border-0">
+                    <p className="flex-1 text-sm text-gray-600 pr-4">${q.text}</p>
+                    <div className="flex gap-8 shrink-0">
+                      <span className=${'w-10 text-center text-sm font-semibold rounded py-0.5 ' + (aVal > bVal ? 'bg-emerald-100 text-emerald-700' : aVal === bVal && aVal >= 0 ? 'bg-gray-100 text-gray-600' : 'text-gray-400')}>
+                        ${scoreA !== null ? scoreA : '--'}
+                      </span>
+                      <span className=${'w-10 text-center text-sm font-semibold rounded py-0.5 ' + (bVal > aVal ? 'bg-emerald-100 text-emerald-700' : bVal === aVal && bVal >= 0 ? 'bg-gray-100 text-gray-600' : 'text-gray-400')}>
+                        ${scoreB !== null ? scoreB : '--'}
+                      </span>
+                    </div>
+                  </div>`;
+                })}
+              </div>
+            </div>`;
+          })}
+        </div>
+      </div>`;
+    }
+
+    // ─── Settings View ───────────────────────────────────────────────────
+    function SettingsView() {
+      var ctx = useApp();
+      var state = ctx.state; var dispatch = ctx.dispatch;
+      var s1 = useState(''); var newSecName = s1[0]; var setNewSecName = s1[1];
+      var s2 = useState(null); var editingSecId = s2[0]; var setEditingSecId = s2[1];
+      var s3 = useState(''); var editSecName = s3[0]; var setEditSecName = s3[1];
+      var s4 = useState({}); var newQTexts = s4[0]; var setNewQTexts = s4[1];
+      var s5 = useState(null); var editingQKey = s5[0]; var setEditingQKey = s5[1];
+      var s6 = useState(''); var editQText = s6[0]; var setEditQText = s6[1];
+      var s7 = useState(false); var confirmReset = s7[0]; var setConfirmReset = s7[1];
+      var s8 = useState(null); var confirmDelSec = s8[0]; var setConfirmDelSec = s8[1];
+
+      function handleAddSection() {
+        var name = newSecName.trim();
+        if (!name || state.template.sections.length >= 10) return;
+        dispatch({ type: 'ADD_SECTION', payload: { name: name } });
+        setNewSecName('');
+      }
+
+      function handleAddQuestion(sectionId) {
+        var text = (newQTexts[sectionId] || '').trim();
+        if (!text) return;
+        dispatch({ type: 'ADD_QUESTION', payload: { sectionId: sectionId, text: text } });
+        var nq = Object.assign({}, newQTexts); nq[sectionId] = ''; setNewQTexts(nq);
+      }
+
+      function handleExport() {
+        var data = JSON.stringify(state, null, 2);
+        var blob = new Blob([data], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = 'priority-scorecard-export.json'; a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function handleImport() {
+        var input = document.createElement('input');
+        input.type = 'file'; input.accept = '.json';
+        input.onchange = function(e) {
+          var file = e.target.files[0];
+          if (!file) return;
+          var reader = new FileReader();
+          reader.onload = function(ev) {
+            try {
+              var data = JSON.parse(ev.target.result);
+              if (data.template && data.workItems) dispatch({ type: 'IMPORT_STATE', payload: data });
+            } catch(err) {}
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+      }
+
+      var cs = useState(false); var copied = cs[0]; var setCopied = cs[1];
+
+      function handleShareLink() {
+        var url = generateShareURL(state);
+        navigator.clipboard.writeText(url).then(function() {
+          setCopied(true);
+          setTimeout(function() { setCopied(false); }, 2000);
+        });
+      }
+
+      function handleCSV() {
+        var r = computeResults(state);
+        exportCSV(state, r);
+      }
+
+      function handlePrint() {
+        var r = computeResults(state);
+        printReport(state, r);
+      }
+
+      return html`<div className="max-w-3xl mx-auto space-y-6 fade-in">
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Save & Share</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            <button onClick=${handlePrint} className="flex flex-col items-center gap-2 px-3 py-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <${Icon} className="w-5 h-5 text-gray-600" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              <span className="text-xs font-medium text-gray-700">Print / PDF</span>
+            </button>
+            <button onClick=${handleShareLink} className="flex flex-col items-center gap-2 px-3 py-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <${Icon} className="w-5 h-5 text-gray-600" d=${copied ? 'M5 13l4 4L19 7' : 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1'} />
+              <span className="text-xs font-medium text-gray-700">${copied ? 'Copied!' : 'Share Link'}</span>
+            </button>
+            <button onClick=${handleCSV} className="flex flex-col items-center gap-2 px-3 py-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <${Icon} className="w-5 h-5 text-gray-600" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <span className="text-xs font-medium text-gray-700">Export CSV</span>
+            </button>
+            <button onClick=${handleExport} className="flex flex-col items-center gap-2 px-3 py-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <${Icon} className="w-5 h-5 text-gray-600" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              <span className="text-xs font-medium text-gray-700">Export JSON</span>
+            </button>
+            <button onClick=${handleImport} className="flex flex-col items-center gap-2 px-3 py-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <${Icon} className="w-5 h-5 text-gray-600" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              <span className="text-xs font-medium text-gray-700">Import JSON</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h2 className="text-lg font-semibold text-gray-800">Scoring Template</h2>
+          <button onClick=${function() { setConfirmReset(true); }} className="px-3 py-1.5 text-sm border border-red-300 rounded-lg hover:bg-red-50 text-red-600">Reset Defaults</button>
+        </div>
+
+        <div className="flex gap-2">
+          <input value=${newSecName} onChange=${function(e) { setNewSecName(e.target.value); }}
+            onKeyDown=${function(e) { if (e.key === 'Enter') handleAddSection(); }}
+            placeholder="New section name..." disabled=${state.template.sections.length >= 10}
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50" />
+          <button onClick=${handleAddSection} disabled=${state.template.sections.length >= 10}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">Add Section</button>
+        </div>
+
+        ${state.template.sections.map(function(section, si) {
+          return html`<div key=${section.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <div className="flex flex-col">
+                  <button disabled=${si === 0} onClick=${function() { dispatch({ type: 'MOVE_SECTION', payload: { fromIndex: si, toIndex: si - 1 } }); }}
+                    className="text-gray-400 hover:text-gray-600 disabled:opacity-25 p-0.5">
+                    <${Icon} className="w-3.5 h-3.5" d="M5 15l7-7 7 7" />
+                  </button>
+                  <button disabled=${si === state.template.sections.length - 1} onClick=${function() { dispatch({ type: 'MOVE_SECTION', payload: { fromIndex: si, toIndex: si + 1 } }); }}
+                    className="text-gray-400 hover:text-gray-600 disabled:opacity-25 p-0.5">
+                    <${Icon} className="w-3.5 h-3.5" d="M19 9l-7 7-7-7" />
+                  </button>
+                </div>
+                ${editingSecId === section.id
+                  ? html`<input autoFocus value=${editSecName}
+                      onChange=${function(e) { setEditSecName(e.target.value); }}
+                      onBlur=${function() { if (editSecName.trim()) dispatch({ type: 'UPDATE_SECTION', payload: { id: section.id, name: editSecName.trim() } }); setEditingSecId(null); }}
+                      onKeyDown=${function(e) { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEditingSecId(null); }}
+                      className="font-semibold text-gray-800 border-b-2 border-blue-500 outline-none bg-transparent text-sm" />`
+                  : html`<h3 className="font-semibold text-gray-800 text-sm">${section.name}</h3>`}
+                <span className="text-xs text-gray-400">(${section.questions.length} questions)</span>
+              </div>
+              <div className="flex gap-1">
+                <button onClick=${function() { setEditingSecId(section.id); setEditSecName(section.name); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-400">
+                  <${Icon} className="w-4 h-4" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </button>
+                <button onClick=${function() { setConfirmDelSec(section); }} className="p-1.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-500">
+                  <${Icon} className="w-4 h-4" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </button>
+              </div>
+            </div>
+            <div>
+              ${section.questions.map(function(q) {
+                var qKey = section.id + ':' + q.id;
+                return html`<div key=${q.id} className="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 group border-b border-gray-50">
+                  ${editingQKey === qKey
+                    ? html`<input autoFocus value=${editQText}
+                        onChange=${function(e) { setEditQText(e.target.value); }}
+                        onBlur=${function() { if (editQText.trim()) dispatch({ type: 'UPDATE_QUESTION', payload: { sectionId: section.id, questionId: q.id, text: editQText.trim() } }); setEditingQKey(null); }}
+                        onKeyDown=${function(e) { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setEditingQKey(null); }}
+                        className="flex-1 text-sm border-b-2 border-blue-500 outline-none bg-transparent mr-4" />`
+                    : html`<p className="text-sm text-gray-600 flex-1">${q.text}</p>`}
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button onClick=${function() { setEditingQKey(qKey); setEditQText(q.text); }} className="p-1 rounded hover:bg-gray-200 text-gray-400">
+                      <${Icon} className="w-3.5 h-3.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </button>
+                    <button onClick=${function() { dispatch({ type: 'DELETE_QUESTION', payload: { sectionId: section.id, questionId: q.id } }); }} className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500">
+                      <${Icon} className="w-3.5 h-3.5" d="M6 18L18 6M6 6l12 12" />
+                    </button>
+                  </div>
+                </div>`;
+              })}
+              <div className="flex gap-2 px-5 py-3">
+                <input value=${newQTexts[section.id] || ''}
+                  onChange=${function(e) { var nq = Object.assign({}, newQTexts); nq[section.id] = e.target.value; setNewQTexts(nq); }}
+                  onKeyDown=${function(e) { if (e.key === 'Enter') handleAddQuestion(section.id); }}
+                  placeholder="Add a question..."
+                  className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <button onClick=${function() { handleAddQuestion(section.id); }} className="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg">Add</button>
+              </div>
+            </div>
+          </div>`;
+        })}
+
+        <${ConfirmDialog} open=${confirmReset} title="Reset to Defaults"
+          message="This will restore the original sections and questions, and clear all scores from existing work items."
+          onConfirm=${function() { dispatch({ type: 'RESET_TEMPLATE' }); setConfirmReset(false); }}
+          onCancel=${function() { setConfirmReset(false); }} />
+        <${ConfirmDialog} open=${!!confirmDelSec} title="Delete Section"
+          message=${confirmDelSec ? 'Delete "' + confirmDelSec.name + '" and its ' + confirmDelSec.questions.length + ' questions? Scores will be removed from all work items.' : ''}
+          onConfirm=${function() { dispatch({ type: 'DELETE_SECTION', payload: { id: confirmDelSec.id } }); setConfirmDelSec(null); }}
+          onCancel=${function() { setConfirmDelSec(null); }} />
+      </div>`;
+    }
+
+    // ─── App ─────────────────────────────────────────────────────────────
+    var TABS = [
+      { id: 'scoring', label: 'Score Items', d: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
+      { id: 'ranking', label: 'Rankings', d: 'M3 4h18M3 8h18M3 12h12M3 16h6' },
+      { id: 'comparison', label: 'Compare', d: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
+      { id: 'settings', label: 'Settings', d: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
+    ];
+
+    function App() {
+      var sr = useReducer(reducer, null, loadState);
+      var state = sr[0]; var dispatch = sr[1];
+      var vs = useState('scoring'); var view = vs[0]; var setView = vs[1];
+      var results = useMemo(function() { return computeResults(state); }, [state.workItems, state.template.sections]);
+
+      useEffect(function() {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+      }, [state]);
+
+      return html`<${AppCtx.Provider} value=${{ state: state, dispatch: dispatch, results: results }}>
+        <div className="min-h-screen bg-gray-50">
+          <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
+            <div className="max-w-7xl mx-auto px-6">
+              <div className="flex items-center justify-between h-14">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <${Icon} className="w-5 h-5 text-white" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </div>
+                  <h1 className="text-lg font-bold text-gray-900">Priority Scorecard</h1>
+                </div>
+                <div className="text-xs text-gray-400">${state.workItems.length} item${state.workItems.length !== 1 ? 's' : ''}</div>
+              </div>
+              <nav className="flex gap-1 -mb-px">
+                ${TABS.map(function(tab) {
+                  var active = view === tab.id;
+                  return html`<button key=${tab.id} onClick=${function() { setView(tab.id); }}
+                    className=${'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ' + (active ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300')}>
+                    <${Icon} className="w-4 h-4" d=${tab.d} />
+                    ${tab.label}
+                  </button>`;
+                })}
+              </nav>
+            </div>
+          </header>
+          <main className="max-w-7xl mx-auto px-6 py-6">
+            ${view === 'scoring' && html`<${ScoringView} />`}
+            ${view === 'ranking' && html`<${RankingView} />`}
+            ${view === 'comparison' && html`<${ComparisonView} />`}
+            ${view === 'settings' && html`<${SettingsView} />`}
+          </main>
+        </div>
+      <//>`;
+    }
+
+    // Boot
+    ReactDOM.createRoot(document.getElementById('root')).render(html`<${App} />`);
+  </script>
+</body>
+</html>
