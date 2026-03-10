@@ -521,12 +521,11 @@
           ${items.map(function(item, i) {
             var y = i * (rowH + gap);
             var barW = Math.max(2, (item.value / 100) * 420);
-            var c = GRADE_COLORS[item.grade] || GRADE_COLORS.F;
+            var barColor = item.value >= 70 ? '#059669' : item.value >= 50 ? '#d97706' : '#dc2626';
             return html`<g key=${i}>
               <text x=${labelW - 8} y=${y + rowH / 2 + 5} textAnchor="end" fontSize="13" fill="#374151" fontWeight="500">${item.name.length > 20 ? item.name.slice(0, 20) + '...' : item.name}</text>
-              <rect x=${labelW} y=${y + 6} width=${barW} height=${rowH - 12} rx="6" fill=${c.hex} opacity="0.85" />
+              <rect x=${labelW} y=${y + 6} width=${barW} height=${rowH - 12} rx="6" fill=${barColor} opacity="0.85" />
               <text x=${labelW + barW + 8} y=${y + rowH / 2 + 5} fontSize="13" fill="#6b7280" fontWeight="600">${item.value}%</text>
-              <text x=${labelW + barW + 50} y=${y + rowH / 2 + 5} fontSize="12" fill=${c.hex} fontWeight="700">${item.grade}</text>
             </g>`;
           })}
         </svg>
@@ -808,7 +807,7 @@
         return html`<${EmptyState} icon=${'📊'} title="No work items yet" message="Create work items in the Score tab to see rankings here." />`;
       }
 
-      var barData = sorted.map(function(r) { return { name: r.workItemName, value: Math.round(r.overallAppeal * 100), grade: r.grade }; });
+      var barData = sorted.map(function(r) { return { name: r.workItemName, value: Math.round(r.overallAppeal * 100) }; });
 
       var radarData = state.template.sections.map(function(sec) {
         var entry = { label: sec.name, values: {} };
