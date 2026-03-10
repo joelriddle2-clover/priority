@@ -8,6 +8,7 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/htm@3.1.1/dist/htm.js"></script>
+  <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
     .score-btn { transition: all 0.15s ease; }
@@ -342,39 +343,79 @@
       a.click(); URL.revokeObjectURL(url);
     }
 
+    function isDefaultTemplate(template) {
+      if (template.sections.length !== defaultTemplate.sections.length) return false;
+      for (var i = 0; i < template.sections.length; i++) {
+        var a = template.sections[i], b = defaultTemplate.sections[i];
+        if (a.id !== b.id || a.name !== b.name) return false;
+        if (a.questions.length !== b.questions.length) return false;
+        for (var j = 0; j < a.questions.length; j++) {
+          if (a.questions[j].id !== b.questions[j].id || a.questions[j].text !== b.questions[j].text) return false;
+        }
+      }
+      return true;
+    }
+
     function generateShareURL(state) {
-      var minimal = {
-        t: state.template.sections.map(function(sec) {
+      var minimal = { w: [] };
+      // Only include template if it's been customized
+      if (!isDefaultTemplate(state.template)) {
+        minimal.t = state.template.sections.map(function(sec) {
           return { i: sec.id, n: sec.name, q: sec.questions.map(function(q) { return { i: q.id, t: q.text }; }) };
-        }),
-        w: state.workItems.map(function(item) {
-          var scores = {};
-          Object.keys(item.scores).forEach(function(secId) {
-            var answered = item.scores[secId].filter(function(s) { return s.score !== null; });
-            if (answered.length > 0) {
-              scores[secId] = answered.map(function(s) { return s.questionId + ':' + s.score; }).join(',');
-            }
-          });
-          return { i: item.id, n: item.name, s: scores };
-        })
-      };
+        });
+      }
+      minimal.w = state.workItems.map(function(item) {
+        var scores = {};
+        Object.keys(item.scores).forEach(function(secId) {
+          var answered = item.scores[secId].filter(function(s) { return s.score !== null; });
+          if (answered.length > 0) {
+            scores[secId] = answered.map(function(s) { return s.questionId + ':' + s.score; }).join(',');
+          }
+        });
+        return { i: item.id, n: item.name, s: scores };
+      });
       var json = JSON.stringify(minimal);
-      var encoded = btoa(unescape(encodeURIComponent(json)));
-      return window.location.origin + window.location.pathname + '#data=' + encoded;
+      // Compress with pako deflate then base64url encode
+      var compressed = pako.deflate(json);
+      var binary = '';
+      for (var k = 0; k < compressed.length; k++) { binary += String.fromCharCode(compressed[k]); }
+      var encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      return window.location.origin + window.location.pathname + '#z=' + encoded;
     }
 
     function loadFromShareURL() {
       var hash = window.location.hash;
-      if (!hash || hash.indexOf('#data=') !== 0) return null;
+      if (!hash) return null;
       try {
-        var encoded = hash.slice(6);
-        var json = decodeURIComponent(escape(atob(encoded)));
+        var encoded, json;
+        if (hash.indexOf('#z=') === 0) {
+          // New compressed format
+          encoded = hash.slice(3);
+          var b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+          while (b64.length % 4) b64 += '=';
+          var binary = atob(b64);
+          var bytes = new Uint8Array(binary.length);
+          for (var k = 0; k < binary.length; k++) { bytes[k] = binary.charCodeAt(k); }
+          json = pako.inflate(bytes, { to: 'string' });
+        } else if (hash.indexOf('#data=') === 0) {
+          // Legacy uncompressed format
+          encoded = hash.slice(6);
+          json = decodeURIComponent(escape(atob(encoded)));
+        } else {
+          return null;
+        }
         var minimal = JSON.parse(json);
-        var template = {
-          sections: minimal.t.map(function(sec) {
-            return { id: sec.i, name: sec.n, questions: sec.q.map(function(q) { return { id: q.i, text: q.t }; }) };
-          })
-        };
+        var template;
+        if (minimal.t) {
+          template = {
+            sections: minimal.t.map(function(sec) {
+              return { id: sec.i, name: sec.n, questions: sec.q.map(function(q) { return { id: q.i, text: q.t }; }) };
+            })
+          };
+        } else {
+          // Use default template if not included in the share link
+          template = JSON.parse(JSON.stringify(defaultTemplate));
+        }
         var workItems = minimal.w.map(function(item) {
           var scores = {};
           template.sections.forEach(function(sec) {
