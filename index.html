@@ -9,8 +9,6 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/htm@3.1.1/dist/htm.js"></script>
   <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
     .score-btn { transition: all 0.15s ease; }
@@ -34,25 +32,6 @@
     var useContext = React.useContext;
     var useRef = React.useRef;
 
-    // ─── Firebase Config ────────────────────────────────────────────────
-    // Replace these values with your Firebase project config (see setup instructions)
-    var FIREBASE_CONFIG = {
-      apiKey: "",
-      authDomain: "",
-      databaseURL: "",
-      projectId: "",
-      storageBucket: "",
-      messagingSenderId: "",
-      appId: ""
-    };
-
-    var firebaseDb = null;
-    try {
-      if (FIREBASE_CONFIG.apiKey && typeof firebase !== 'undefined') {
-        firebase.initializeApp(FIREBASE_CONFIG);
-        firebaseDb = firebase.database();
-      }
-    } catch(e) { console.warn('Firebase init failed:', e); }
 
     // ─── Utils ───────────────────────────────────────────────────────────
     function genId() { return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 11); }
@@ -138,8 +117,8 @@
     var STORAGE_KEY = 'priority-scorecard-state';
 
     function loadState() {
-      // Cloud room: return empty state, App will load async from Firebase
-      if (getRoomFromURL() && firebaseDb) {
+      // Cloud room: return empty state, App will load async
+      if (getRoomFromURL()) {
         return { template: defaultTemplate, workItems: [], activeWorkItemId: null };
       }
       // Check for shared URL data (legacy compressed links)
@@ -463,13 +442,8 @@
       } catch(e) { return null; }
     }
 
-    // ─── Cloud Room Functions ─────────────────────────────────────────────
-    function generateRoomId() {
-      var chars = 'abcdefghijkmnpqrstuvwxyz23456789';
-      var id = '';
-      for (var i = 0; i < 8; i++) id += chars[Math.floor(Math.random() * chars.length)];
-      return id;
-    }
+    // ─── Cloud Room Functions (JSONBlob) ──────────────────────────────────
+    var JSONBLOB_API = 'https://jsonblob.com/api/jsonBlob';
 
     function getRoomFromURL() {
       var hash = window.location.hash;
@@ -478,20 +452,44 @@
     }
 
     function saveRoom(roomId, state) {
-      if (!firebaseDb || !roomId) return Promise.resolve();
-      return firebaseDb.ref('rooms/' + roomId).set({
-        template: state.template,
-        workItems: state.workItems,
-        activeWorkItemId: state.activeWorkItemId,
-        updatedAt: firebase.database.ServerValue.TIMESTAMP
+      if (!roomId) return Promise.resolve();
+      return fetch(JSONBLOB_API + '/' + roomId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          template: state.template,
+          workItems: state.workItems,
+          activeWorkItemId: state.activeWorkItemId,
+          updatedAt: Date.now()
+        })
+      });
+    }
+
+    function createRoom(state) {
+      return fetch(JSONBLOB_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          template: state.template,
+          workItems: state.workItems,
+          activeWorkItemId: state.activeWorkItemId,
+          updatedAt: Date.now()
+        })
+      }).then(function(resp) {
+        var blobId = resp.headers.get('X-jsonblob-Id') || resp.headers.get('Location');
+        if (blobId) blobId = blobId.replace(/.*\//, '');
+        return blobId;
       });
     }
 
     function loadRoom(roomId) {
-      if (!firebaseDb || !roomId) return Promise.resolve(null);
-      return firebaseDb.ref('rooms/' + roomId).once('value').then(function(snap) {
-        return snap.val();
-      });
+      if (!roomId) return Promise.resolve(null);
+      return fetch(JSONBLOB_API + '/' + roomId, {
+        headers: { 'Accept': 'application/json' }
+      }).then(function(resp) {
+        if (!resp.ok) return null;
+        return resp.json();
+      }).catch(function() { return null; });
     }
 
     function printReport(state, results) {
@@ -1100,30 +1098,27 @@
       var ss = useState(false); var saving = ss[0]; var setSaving = ss[1];
 
       function handleShareLink() {
-        if (firebaseDb) {
-          // Cloud share: create or reuse room
-          setSaving(true);
-          var rid = ctx.roomId || generateRoomId();
-          saveRoom(rid, state).then(function() {
-            if (!ctx.roomId) {
-              ctx.setRoomId(rid);
-              if (history.replaceState) history.replaceState(null, '', '#room=' + rid);
-            }
-            var url = window.location.origin + window.location.pathname + '#room=' + rid;
-            navigator.clipboard.writeText(url).then(function() {
-              setCopied(true);
-              setSaving(false);
-              setTimeout(function() { setCopied(false); }, 2000);
-            });
-          }).catch(function() { setSaving(false); });
+        setSaving(true);
+        var savePromise;
+        if (ctx.roomId) {
+          // Update existing room
+          savePromise = saveRoom(ctx.roomId, state).then(function() { return ctx.roomId; });
         } else {
-          // Fallback: compressed URL share
-          var url = generateShareURL(state);
-          navigator.clipboard.writeText(url).then(function() {
-            setCopied(true);
-            setTimeout(function() { setCopied(false); }, 2000);
-          });
+          // Create new room
+          savePromise = createRoom(state);
         }
+        savePromise.then(function(rid) {
+          if (!ctx.roomId && rid) {
+            ctx.setRoomId(rid);
+            if (history.replaceState) history.replaceState(null, '', '#room=' + rid);
+          }
+          var url = window.location.origin + window.location.pathname + '#room=' + (rid || ctx.roomId);
+          return navigator.clipboard.writeText(url);
+        }).then(function() {
+          setCopied(true);
+          setSaving(false);
+          setTimeout(function() { setCopied(false); }, 2000);
+        }).catch(function() { setSaving(false); });
       }
 
       function handleCSV() {
@@ -1136,10 +1131,8 @@
         printReport(state, r);
       }
 
-      var cloudEnabled = !!firebaseDb;
-
       return html`<div className="max-w-3xl mx-auto space-y-6 fade-in">
-        ${cloudEnabled && ctx.roomId && html`<div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between">
+        ${ctx.roomId && html`<div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>
             <div>
@@ -1159,13 +1152,11 @@
               <${Icon} className="w-5 h-5 text-gray-600" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
               <span className="text-xs font-medium text-gray-700">Print / PDF</span>
             </button>
-            <button onClick=${handleShareLink} className=${'flex flex-col items-center gap-2 px-3 py-3 border rounded-lg transition-colors ' + (cloudEnabled ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100' : 'border-gray-200 hover:bg-gray-50')}>
-              <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                ${cloudEnabled
-                  ? html`<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d=${copied ? 'M5 13l4 4L19 7' : 'M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z'} />`
-                  : html`<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d=${copied ? 'M5 13l4 4L19 7' : 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1'} />`}
+            <button onClick=${handleShareLink} className="flex flex-col items-center gap-2 px-3 py-3 border border-emerald-200 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors">
+              <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d=${copied ? 'M5 13l4 4L19 7' : 'M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z'} />
               </svg>
-              <span className="text-xs font-medium text-gray-700">${copied ? 'Copied!' : saving ? 'Saving...' : cloudEnabled ? 'Cloud Share' : 'Share Link'}</span>
+              <span className="text-xs font-medium text-gray-700">${copied ? 'Copied!' : saving ? 'Saving...' : 'Cloud Share'}</span>
             </button>
             <button onClick=${handleCSV} className="flex flex-col items-center gap-2 px-3 py-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
               <${Icon} className="w-5 h-5 text-gray-600" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1285,7 +1276,7 @@
       var state = sr[0]; var dispatch = sr[1];
       var vs = useState('scoring'); var view = vs[0]; var setView = vs[1];
       var rs = useState(getRoomFromURL()); var roomId = rs[0]; var setRoomId = rs[1];
-      var ls = useState(!!getRoomFromURL() && !!firebaseDb); var loading = ls[0]; var setLoading = ls[1];
+      var ls = useState(!!getRoomFromURL()); var loading = ls[0]; var setLoading = ls[1];
       var cloudTimer = useRef(null);
       var skipCloud = useRef(true);
       var results = useMemo(function() { return computeResults(state); }, [state.workItems, state.template.sections]);
@@ -1293,7 +1284,7 @@
       // Load from cloud room on mount
       useEffect(function() {
         var rid = getRoomFromURL();
-        if (rid && firebaseDb) {
+        if (rid) {
           loadRoom(rid).then(function(data) {
             if (data && data.template && data.workItems) {
               dispatch({ type: 'IMPORT_STATE', payload: {
@@ -1316,7 +1307,7 @@
       // Save to localStorage + cloud (debounced)
       useEffect(function() {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
-        if (roomId && firebaseDb && !skipCloud.current) {
+        if (roomId && !skipCloud.current) {
           if (cloudTimer.current) clearTimeout(cloudTimer.current);
           cloudTimer.current = setTimeout(function() { saveRoom(roomId, state); }, 1500);
         }
@@ -1343,7 +1334,7 @@
                   <h1 className="text-lg font-bold text-gray-900">Priority Scorecard</h1>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-gray-400">
-                  ${roomId && firebaseDb && html`<span className="flex items-center gap-1 text-emerald-500 bg-emerald-50 px-2 py-1 rounded-full">
+                  ${roomId && html`<span className="flex items-center gap-1 text-emerald-500 bg-emerald-50 px-2 py-1 rounded-full">
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>
                     Cloud
                   </span>`}
